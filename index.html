@@ -20,9 +20,10 @@ form{display:flex;gap:8px;width:100%;max-width:520px;margin-top:8px}
 input{flex:1;padding:12px;border-radius:24px;border:1px solid #2b4a9a;background:#101a38;color:#e8efff;font-size:16px}
 .s{padding:0 18px;border-radius:24px;border:0;background:#4a8cff;color:#fff;font-size:16px}
 </style></head><body>
-<div class="top"><h1>Noah</h1><button class="k" id="key">🔑 AI key</button></div>
+<div class="top"><h1>Noah</h1><span><button class="k" id="ct">📇 Contacts</button> <button class="k" id="key">🔑 AI key</button></span></div>
 <button id="g" aria-label="Noah"><svg viewBox="0 0 200 200"><defs><radialGradient id="o" cx="35%" cy="30%"><stop offset="0" stop-color="#8fd0ff"/><stop offset="1" stop-color="#1b52c9"/></radialGradient></defs><circle cx="100" cy="100" r="95" fill="url(#o)"/><g fill="#3fae5a"><path d="M50 60c20-14 38-6 44 8s-10 20-6 34-22 8-30-6-22-22-8-36z"/><path d="M120 50c16-8 40 0 44 18s-14 18-12 34-26 10-30-8 4-26-8-30 0-8 6-14z"/><path d="M112 124c12-4 26 6 22 22s-14 32-26 24-12-38 4-46z"/></g><ellipse cx="72" cy="52" rx="38" ry="20" fill="#fff" opacity=".18"/></svg></button>
 <div id="st">Globe dabao aur mujhse baat karo</div>
+<div id="pl" style="display:none;width:100%;max-width:520px;position:relative;margin-bottom:8px"><button class="k" id="px" style="position:absolute;right:6px;top:6px;z-index:2">⏹ Band</button><iframe id="yf" style="width:100%;aspect-ratio:16/9;border:0;border-radius:14px" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
 <div id="log"></div>
 <form id="f"><input id="t" placeholder="Ya yahan likho..." autocomplete="off"><button class="s">Send</button></form>
 <script>
@@ -47,9 +48,23 @@ const clean=s=>s.replace(FILL,' ').replace(/\s+/g,' ').trim();
 async function ai(q){const k=localStorage.getItem('nk');if(!k)return null;
  try{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key='+k,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system_instruction:{parts:[{text:PERSONA}]},contents:[...H.slice(-6),{role:'user',parts:[{text:q}]}]})});
  const d=await r.json();const a=d.candidates[0].content.parts[0].text.trim();H.push({role:'user',parts:[{text:q}]},{role:'model',parts:[{text:a}]});return a}catch(e){return ''}}
+async function ytFind(x){
+ for(const h of ['https://pipedapi.kavin.rocks','https://api.piped.private.coffee','https://pipedapi.adminforge.de']){try{const r=await fetch(h+'/search?filter=videos&q='+encodeURIComponent(x),{signal:AbortSignal.timeout(6000)});const d=await r.json();const it=(d.items||[]).find(i=>i.url&&i.url.includes('v='));if(it)return it.url.split('v=')[1].split('&')[0]}catch(e){}}
+ for(const h of ['https://yewtu.be','https://inv.nadeko.net']){try{const r=await fetch(h+'/api/v1/search?type=video&q='+encodeURIComponent(x),{signal:AbortSignal.timeout(6000)});const d=await r.json();if(d[0]&&d[0].videoId)return d[0].videoId}catch(e){}}
+ return null}
+function playYT(id){hands=false;try{rec.stop()}catch(e){}$('yf').src='https://www.youtube.com/embed/'+id+'?autoplay=1&playsinline=1';$('pl').style.display='block'}
+function stopYT(){$('yf').src='';$('pl').style.display='none'}
+$('px').onclick=stopYT;
 const num=s=>{const d=s.replace(/\D/g,'');return d.length===10?'91'+d:d};
-const find=n=>{n=clean(n);const c=LS.get('c',{});const k=Object.keys(c).find(x=>x===n||n.includes(x)||x.includes(n));return k?{name:k,num:c[k]}:null};
+const find=n=>{n=clean(n);const c=LS.get('c',{});const sq=z=>z.replace(/\s+/g,'');const k=Object.keys(c).find(x=>x===n||n.includes(x)||x.includes(n)||sq(x)===sq(n));return k?{name:k,num:c[k]}:null};
 async function handle(raw){const q=raw.toLowerCase().trim();if(!q)return;add(esc(raw),'u');const has=(...w)=>w.some(x=>q.includes(x));
+ if(has('band karo','ruko','stop','pause')&&$('pl').style.display!=='none'){stopYT();return say('Gana band kar diya 💗')}
+ let ch=q.match(/^(?:open\s+|kholo\s+)?(.+?)\s+(?:ki\s+|ka\s+)?chat\b(.*)$/);
+ if(ch){const p=find(ch[1]);let msg='';const rest=ch[2];
+  const mm=rest.match(/(?:likho|write|type|bhejo|send|bolo|kaho)\s+(.+)/)||rest.match(/(?:me|mein|par|pe)?\s*(.+?)\s+(?:likho|write|type|bhejo|send)\s*$/);
+  if(mm)msg=mm[1].replace(/^(ki|ke|that)\s+/,'').trim();
+  if(!p)return say('Pehle 📇 Contacts dabake '+clean(ch[1])+' jodo, ya bolo: save contact '+clean(ch[1])+' 9876543210');
+  return go(`https://wa.me/${p.num}`+(msg?`?text=${encodeURIComponent(msg)}`:''),msg?`${p.name} ki chat khol di aur ${msg} likh diya. Bas send dabao 💌`:`${p.name} ki chat khol rahi hu 💬`)}
  let m=q.match(/(?:save|add|jodo)\s+contact\s+([a-z ]+?)\s+([\d\s+]{8,})/);
  if(m){const c=LS.get('c',{});c[m[1].trim()]=num(m[2]);LS.set('c',c);return say(`${m[1].trim()} ka number save kar liya 💗`)}
  m=q.match(/(.+?)\s+ko\s+(call|phone|sms|text)/);
@@ -63,7 +78,7 @@ async function handle(raw){const q=raw.toLowerCase().trim();if(!q)return;add(esc
  if(t&&has('timer','alarm','remind','yaad')){const n=+t[1],u=/sec/.test(t[2])?1:/min/.test(t[2])?60:3600;setTimeout(()=>say('Time ho gaya! Tumhara timer khatam hua ⏰'),n*u*1000);return say(`${n} ${t[2]} ka timer laga diya. App khula rakhna ⏰`)}
  if(has('note','yaad rakh','save kar')&&!has('padho','dikhao')){const x=q.replace(/note|karo|kar|do|yaad rakhna|yaad rakh|save|noah|ye|ki/g,' ').replace(/\s+/g,' ').trim();const a=LS.get('n',[]);a.push(x);LS.set('n',a);return say(`Save kar liya: ${x} 📝`)}
  if(has('mere notes','notes padho','notes dikhao','saved')){const a=LS.get('n',[]);return say(a.length?'Tumhare notes: '+a.join('. '):'Abhi koi note nahi hai')}
- if(has('youtube','chala','bajao','gana','gaana','play ')){let x=clean(q);if(has('gana','gaana','song')&&x)x+=' song';return x?go('https://www.youtube.com/results?search_query='+encodeURIComponent(x),`YouTube pe ${x} khol rahi hu 🎶`):go('https://www.youtube.com','YouTube khol diya 💗')}
+ if(has('youtube','chala','bajao','gana','gaana','play ')){let x=clean(q);if(has('gana','gaana','song')&&x)x+=' song';if(!x)return go('https://www.youtube.com','YouTube khol diya 💗');const id=await ytFind(x);if(id){playYT(id);return say(`${x} chala rahi hu 🎶`)}return go('https://www.youtube.com/results?search_query='+encodeURIComponent(x),`YouTube pe ${x} khol rahi hu 🎶`)}
  if(has('google','search','dhundo')){const x=clean(q);return go('https://www.google.com/search?q='+encodeURIComponent(x),`Google pe ${x} search kar diya 🔍`)}
  for(const k in SITES)if(q.includes(k))return go(SITES[k],`${k} khol rahi hu 😊`);
  if(has('time','samay','baje kya'))return say('Abhi '+new Date().toLocaleTimeString('hi-IN',{hour:'2-digit',minute:'2-digit'})+' ho rahe hain ⏰');
@@ -78,7 +93,7 @@ async function handle(raw){const q=raw.toLowerCase().trim();if(!q)return;add(esc
  if(a===null&&has('hello','hi','hey','namaste'))return say(R(['Hello jaan! Bolo, kya karu tumhare liye? 💗','Hii! Main yahin hu, bolo na 😊']));
  return a===null?say('Smart jawab ke liye upar 🔑 AI key daalo. Abhi Google par dhundh rahi hu.',null)||go('https://www.google.com/search?q='+encodeURIComponent(raw),'Search khol diya.'):say('Abhi AI se jawab nahi mila, dobara bolo 💗')}
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(SR){rec=new SR();rec.lang='hi-IN';rec.interimResults=false;
+if(SR){rec=new SR();rec.lang='en-IN';rec.interimResults=false;
  rec.onstart=()=>{g.className='l';st.textContent='Sun rahi hu... 👂'};
  rec.onend=()=>{if(!talking)g.className='';st.textContent=hands?'Bolo, main sun rahi hu 💗':'Globe dabao aur baat karo';if(hands&&!talking)setTimeout(()=>{try{rec.start()}catch(e){}},400)};
  rec.onresult=e=>handle(e.results[0][0].transcript);
@@ -87,5 +102,8 @@ else st.textContent='Chrome use karo ya likh ke bolo';
 g.onclick=()=>{if(!rec)return;speechSynthesis.cancel();if(hands){hands=false;try{rec.stop()}catch(e){}st.textContent='Band kar diya. Globe dabao to dobara shuru';g.className=''}else{hands=true;if(!log.children.length)say('Hello! Main Noah hu 💗 Bolo, kya karu tumhare liye?');else try{rec.start()}catch(e){}}};
 $('f').onsubmit=e=>{e.preventDefault();const v=$('t').value;$('t').value='';handle(v)};
 $('key').onclick=()=>{const k=prompt('Free Gemini API key paste karo (aistudio.google.com se):');if(k){localStorage.setItem('nk',k.trim());say('AI key save ho gayi. Ab main kuch bhi samajh sakti hu 💗')}};
+$('ct').onclick=async()=>{try{if(!('contacts' in navigator))return say('Is browser me contacts nahi mil sakte. Bolo: save contact papa ji 9876543210');
+ const l=await navigator.contacts.select(['name','tel'],{multiple:true});const c=LS.get('c',{});let n=0;
+ l.forEach(p=>{if(p.name&&p.name[0]&&p.tel&&p.tel[0]){c[p.name[0].toLowerCase().trim()]=num(p.tel[0]);n++}});LS.set('c',c);say(n+' contacts jod diye 💗 Ab bolo: papa ji ki chat kholo')}catch(e){}};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script></body></html>
