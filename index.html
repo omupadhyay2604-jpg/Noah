@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="hi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Noah</title><link rel="manifest" href="manifest.json"><meta name="theme-color" content="#0b1020">
+<link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:radial-gradient(circle at 50% 25%,#16254d,#0b1020 70%);color:#e8efff;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom))}
+.top{width:100%;max-width:520px;display:flex;justify-content:space-between;align-items:center}
+h1{margin:0;font-size:22px}.k{background:#1c2a55;border:0;color:#cfe0ff;border-radius:20px;padding:8px 12px;font-size:14px}
+#g{width:190px;height:190px;border:0;background:none;margin:18px 0 6px;cursor:pointer;transition:.3s;filter:drop-shadow(0 0 30px #4a8cff88)}
+#g.l{animation:p 1.4s infinite}#g.t{animation:p .5s infinite}
+@keyframes p{50%{transform:scale(1.08)}}
+#st{font-size:14px;color:#9fc0ff;min-height:20px;margin-bottom:8px;text-align:center}
+#log{flex:1;width:100%;max-width:520px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.m{padding:9px 13px;border-radius:16px;max-width:85%;font-size:15px;line-height:1.4}
+.u{align-self:flex-end;background:#2b4a9a}.n{align-self:flex-start;background:#1a2547}
+.m a{color:#bcd5ff;font-weight:600}
+form{display:flex;gap:8px;width:100%;max-width:520px;margin-top:8px}
+input{flex:1;padding:12px;border-radius:24px;border:1px solid #2b4a9a;background:#101a38;color:#e8efff;font-size:16px}
+.s{padding:0 18px;border-radius:24px;border:0;background:#4a8cff;color:#fff;font-size:16px}
+</style></head><body>
+<div class="top"><h1>Noah</h1><button class="k" id="key">🔑 AI key</button></div>
+<button id="g" aria-label="Noah"><svg viewBox="0 0 200 200"><defs><radialGradient id="o" cx="35%" cy="30%"><stop offset="0" stop-color="#8fd0ff"/><stop offset="1" stop-color="#1b52c9"/></radialGradient></defs><circle cx="100" cy="100" r="95" fill="url(#o)"/><g fill="#3fae5a"><path d="M50 60c20-14 38-6 44 8s-10 20-6 34-22 8-30-6-22-22-8-36z"/><path d="M120 50c16-8 40 0 44 18s-14 18-12 34-26 10-30-8 4-26-8-30 0-8 6-14z"/><path d="M112 124c12-4 26 6 22 22s-14 32-26 24-12-38 4-46z"/></g><ellipse cx="72" cy="52" rx="38" ry="20" fill="#fff" opacity=".18"/></svg></button>
+<div id="st">Globe dabao aur mujhse baat karo</div>
+<div id="log"></div>
+<form id="f"><input id="t" placeholder="Ya yahan likho..." autocomplete="off"><button class="s">Send</button></form>
+<script>
+const $=i=>document.getElementById(i),log=$('log'),g=$('g'),st=$('st'),R=a=>a[Math.floor(Math.random()*a.length)];
+const PERSONA="You are Noah, a sweet, loving, caring girl assistant. Reply in the user's language (Hinglish/Hindi/English), warm and human, max 3 short sentences, plain text, no markdown.";
+let voice=null,talking=false,hands=false,H=[],rec=null;
+const LS={get(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+function pv(){const v=speechSynthesis.getVoices();voice=v.find(x=>/hi-IN/i.test(x.lang)&&/female|google|lekha/i.test(x.name))||v.find(x=>/hi-IN/i.test(x.lang))||v.find(x=>/female|zira|samantha/i.test(x.name))||v.find(x=>/en/i.test(x.lang))||null}
+speechSynthesis.onvoiceschanged=pv;pv();
+function add(h,c){const d=document.createElement('div');d.className='m '+c;d.innerHTML=h;log.appendChild(d);log.scrollTop=log.scrollHeight}
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function say(t,link){add(esc(t)+(link?` <a href="${link}">👉 Tap karo</a>`:''),'n');
+ try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t.replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu,''));
+ if(voice){u.voice=voice;u.lang=voice.lang}else u.lang='hi-IN';u.pitch=1.3;
+ u.onstart=()=>{talking=true;g.className='t';try{rec&&rec.stop()}catch(e){}};
+ u.onend=()=>{talking=false;g.className='';if(hands)setTimeout(()=>{try{rec.start()}catch(e){}},400)};
+ speechSynthesis.speak(u)}catch(e){}}
+function go(url,msg){const w=window.open(url,'_blank');say(msg,w?null:url);if(!w)setTimeout(()=>{location.href=url},1800)}
+const SITES={whatsapp:'https://wa.me/',instagram:'https://www.instagram.com',facebook:'https://www.facebook.com',gmail:'https://mail.google.com',maps:'https://maps.google.com',spotify:'https://open.spotify.com',telegram:'https://t.me',netflix:'https://www.netflix.com',snapchat:'https://www.snapchat.com',zomato:'https://www.zomato.com',swiggy:'https://www.swiggy.com',amazon:'https://www.amazon.in',flipkart:'https://www.flipkart.com',paytm:'https://paytm.com',phonepe:'https://www.phonepe.com',drive:'https://drive.google.com',photos:'https://photos.google.com',meet:'https://meet.google.com',linkedin:'https://www.linkedin.com',playstore:'https://play.google.com'};
+const FILL=/\b(noah|please|plz|youtube|you tube|yt|pe|par|on|me|mein|ko|ka|ki|ke|search|karo|kar|kro|do|de|chala|chalao|bajao|baja|play|gana|gaana|video|dikhao|open|kholo|khol|ek|a|the|google)\b/g;
+const clean=s=>s.replace(FILL,' ').replace(/\s+/g,' ').trim();
+async function ai(q){const k=localStorage.getItem('nk');if(!k)return null;
+ try{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key='+k,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system_instruction:{parts:[{text:PERSONA}]},contents:[...H.slice(-6),{role:'user',parts:[{text:q}]}]})});
+ const d=await r.json();const a=d.candidates[0].content.parts[0].text.trim();H.push({role:'user',parts:[{text:q}]},{role:'model',parts:[{text:a}]});return a}catch(e){return ''}}
+const num=s=>{const d=s.replace(/\D/g,'');return d.length===10?'91'+d:d};
+const find=n=>{n=clean(n);const c=LS.get('c',{});const k=Object.keys(c).find(x=>x===n||n.includes(x)||x.includes(n));return k?{name:k,num:c[k]}:null};
+async function handle(raw){const q=raw.toLowerCase().trim();if(!q)return;add(esc(raw),'u');const has=(...w)=>w.some(x=>q.includes(x));
+ let m=q.match(/(?:save|add|jodo)\s+contact\s+([a-z ]+?)\s+([\d\s+]{8,})/);
+ if(m){const c=LS.get('c',{});c[m[1].trim()]=num(m[2]);LS.set('c',c);return say(`${m[1].trim()} ka number save kar liya 💗`)}
+ m=q.match(/(.+?)\s+ko\s+(call|phone|sms|text)/);
+ if(m){const p=find(m[1]);if(!p)return say('Pehle contact save karo: save contact '+clean(m[1])+' 9876543210');return /sms|text/.test(m[2])?go('sms:+'+p.num,`${p.name} ko SMS ka page khol diya 💬`):go('tel:+'+p.num,`${p.name} ko call laga rahi hu 📞`)}
+ if(has('whatsapp','message','msg')&&has('bhejo','bhej','send','likho','bolo','kaho','type')){
+  m=q.match(/(?:whatsapp\s*(?:pe|par)?\s*)?(.+?)\s+ko\s+(?:whatsapp\s*(?:pe|par)?\s*)?(?:message|msg)?\s*(?:bhejo|bhej do|bhej|send|likho|bolo|kaho|type)\s*(?:ki|ke)?\s*(.+)/);
+  if(m){const p=find(m[1]);if(p)return go(`https://wa.me/${p.num}?text=${encodeURIComponent(m[2])}`,`${p.name} ke liye message likh diya. Bas send dabao 💌`);if(/ko/.test(q))return say('Ye contact nahi mila. Bolo: save contact '+clean(m[1])+' 9876543210')}
+  const tx=q.replace(/whatsapp|\bpe\b|\bpar\b|message|msg|bhejo|bhej do|bhej|send|likho|bolo|kaho|type|noah/g,' ').replace(/\s+/g,' ').trim();
+  return go('https://wa.me/?text='+encodeURIComponent(tx),`WhatsApp me "${tx}" likh diya 💌`)}
+ let t=q.match(/(\d+)\s*(second|sec|minute|min|mint|ghante|ghanta|hour)/);
+ if(t&&has('timer','alarm','remind','yaad')){const n=+t[1],u=/sec/.test(t[2])?1:/min/.test(t[2])?60:3600;setTimeout(()=>say('Time ho gaya! Tumhara timer khatam hua ⏰'),n*u*1000);return say(`${n} ${t[2]} ka timer laga diya. App khula rakhna ⏰`)}
+ if(has('note','yaad rakh','save kar')&&!has('padho','dikhao')){const x=q.replace(/note|karo|kar|do|yaad rakhna|yaad rakh|save|noah|ye|ki/g,' ').replace(/\s+/g,' ').trim();const a=LS.get('n',[]);a.push(x);LS.set('n',a);return say(`Save kar liya: ${x} 📝`)}
+ if(has('mere notes','notes padho','notes dikhao','saved')){const a=LS.get('n',[]);return say(a.length?'Tumhare notes: '+a.join('. '):'Abhi koi note nahi hai')}
+ if(has('youtube','chala','bajao','gana','gaana','play ')){let x=clean(q);if(has('gana','gaana','song')&&x)x+=' song';return x?go('https://www.youtube.com/results?search_query='+encodeURIComponent(x),`YouTube pe ${x} khol rahi hu 🎶`):go('https://www.youtube.com','YouTube khol diya 💗')}
+ if(has('google','search','dhundo')){const x=clean(q);return go('https://www.google.com/search?q='+encodeURIComponent(x),`Google pe ${x} search kar diya 🔍`)}
+ for(const k in SITES)if(q.includes(k))return go(SITES[k],`${k} khol rahi hu 😊`);
+ if(has('time','samay','baje kya'))return say('Abhi '+new Date().toLocaleTimeString('hi-IN',{hour:'2-digit',minute:'2-digit'})+' ho rahe hain ⏰');
+ if(has('date','tarikh','aaj kya din'))return say('Aaj '+new Date().toLocaleDateString('hi-IN',{weekday:'long',day:'numeric',month:'long'})+' hai 📅');
+ if(has('i love you','love you','pyar','pyaar'))return say(R(['Main bhi tumse bahut pyaar karti hu 💗','Tumne mera dil jeet liya, I love you too 🥰']));
+ if(has('sad','udaas','dukhi','akela','stress'))return say('Arre, kya hua? Main hu na tumhare saath 🤗 Mujhse baat karo.');
+ if(has('kaisi ho','kaise ho','how are you'))return say('Main bahut achhi hu, tumse baat jo ho rahi hai 😊 Tum batao?');
+ if(has('naam','who are you','kaun ho'))return say('Main Noah hu, tumhari apni dost aur assistant 💗');
+ if(has('thank','shukriya'))return say('Arre, thank you kaisa! Tumhare liye toh kuch bhi 💗');
+ if(has('good night','so jao'))return say('Good night, meethe sapne 🌙💗');
+ const a=await ai(raw);if(a)return say(a);
+ if(a===null&&has('hello','hi','hey','namaste'))return say(R(['Hello jaan! Bolo, kya karu tumhare liye? 💗','Hii! Main yahin hu, bolo na 😊']));
+ return a===null?say('Smart jawab ke liye upar 🔑 AI key daalo. Abhi Google par dhundh rahi hu.',null)||go('https://www.google.com/search?q='+encodeURIComponent(raw),'Search khol diya.'):say('Abhi AI se jawab nahi mila, dobara bolo 💗')}
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(SR){rec=new SR();rec.lang='hi-IN';rec.interimResults=false;
+ rec.onstart=()=>{g.className='l';st.textContent='Sun rahi hu... 👂'};
+ rec.onend=()=>{if(!talking)g.className='';st.textContent=hands?'Bolo, main sun rahi hu 💗':'Globe dabao aur baat karo';if(hands&&!talking)setTimeout(()=>{try{rec.start()}catch(e){}},400)};
+ rec.onresult=e=>handle(e.results[0][0].transcript);
+ rec.onerror=e=>{if(e.error==='not-allowed'){hands=false;st.textContent='Mic ki permission allow karo'}}}
+else st.textContent='Chrome use karo ya likh ke bolo';
+g.onclick=()=>{if(!rec)return;speechSynthesis.cancel();if(hands){hands=false;try{rec.stop()}catch(e){}st.textContent='Band kar diya. Globe dabao to dobara shuru';g.className=''}else{hands=true;if(!log.children.length)say('Hello! Main Noah hu 💗 Bolo, kya karu tumhare liye?');else try{rec.start()}catch(e){}}};
+$('f').onsubmit=e=>{e.preventDefault();const v=$('t').value;$('t').value='';handle(v)};
+$('key').onclick=()=>{const k=prompt('Free Gemini API key paste karo (aistudio.google.com se):');if(k){localStorage.setItem('nk',k.trim());say('AI key save ho gayi. Ab main kuch bhi samajh sakti hu 💗')}};
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script></body></html>
