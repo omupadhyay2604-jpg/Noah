@@ -1,0 +1,684 @@
+name: Noah v2
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+      - name: Create Noah project files
+        run: |
+          mkdir -p $(dirname build.gradle.kts)
+          cat > build.gradle.kts <<'NOAH_EOF'
+          plugins {
+              id("com.android.application") version "8.2.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+          }
+          NOAH_EOF
+          mkdir -p $(dirname gradle.properties)
+          cat > gradle.properties <<'NOAH_EOF'
+          org.gradle.jvmargs=-Xmx2g
+          android.useAndroidX=false
+          NOAH_EOF
+          mkdir -p $(dirname settings.gradle.kts)
+          cat > settings.gradle.kts <<'NOAH_EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "Noah"
+          include(":app")
+          NOAH_EOF
+          mkdir -p $(dirname app/build.gradle.kts)
+          cat > app/build.gradle.kts <<'NOAH_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.noah.app"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.noah.app"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          NOAH_EOF
+          mkdir -p $(dirname app/src/main/AndroidManifest.xml)
+          cat > app/src/main/AndroidManifest.xml <<'NOAH_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.READ_CONTACTS"/>
+              <uses-permission android:name="android.permission.CALL_PHONE"/>
+              <uses-permission android:name="android.permission.SEND_SMS"/>
+              <uses-permission android:name="com.android.alarm.permission.SET_ALARM"/>
+              <queries>
+                  <intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent>
+                  <intent><action android:name="android.speech.RecognitionService"/></intent>
+                  <intent><action android:name="android.intent.action.TTS_SERVICE"/></intent>
+              </queries>
+              <application android:label="Noah" android:icon="@drawable/ic_globe">
+                  <activity android:name=".MainActivity" android:exported="true"
+                      android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <service android:name=".NoahService" android:exported="true"
+                      android:label="Noah Auto-send"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                      <intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>
+                      <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_config"/>
+                  </service>
+              </application>
+          </manifest>
+          NOAH_EOF
+          mkdir -p $(dirname app/src/main/java/com/noah/app/GlobeView.kt)
+          cat > app/src/main/java/com/noah/app/GlobeView.kt <<'NOAH_EOF'
+          package com.noah.app
+
+          import android.content.Context
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
+          import android.graphics.Path
+          import android.graphics.RadialGradient
+          import android.graphics.Shader
+          import android.view.View
+          import kotlin.math.abs
+          import kotlin.math.cos
+          import kotlin.math.hypot
+          import kotlin.math.min
+          import kotlin.math.sin
+
+          class GlobeView(c: Context) : View(c) {
+              @Volatile var state = 0
+              private var rot = 0f
+              private var t = 0f
+              private var amp = 0f
+              private var last = 0L
+              private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val pt = FloatArray(2)
+              private val land = arrayOf(
+                  floatArrayOf(70f,-160f, 72f,-95f, 60f,-65f, 45f,-60f, 30f,-80f, 25f,-97f, 15f,-92f, 9f,-80f, 18f,-105f, 32f,-117f, 48f,-125f, 60f,-140f),
+                  floatArrayOf(10f,-75f, 8f,-60f, -5f,-35f, -23f,-42f, -40f,-62f, -55f,-70f, -40f,-74f, -18f,-72f, -5f,-81f),
+                  floatArrayOf(35f,-10f, 37f,10f, 31f,32f, 12f,44f, -5f,40f, -25f,35f, -35f,20f, -18f,12f, 5f,8f, 5f,-10f, 20f,-17f),
+                  floatArrayOf(36f,-9f, 43f,-9f, 50f,-5f, 58f,5f, 71f,25f, 70f,40f, 55f,40f, 45f,30f, 38f,25f, 36f,10f),
+                  floatArrayOf(70f,60f, 75f,110f, 66f,170f, 55f,160f, 40f,140f, 22f,120f, 8f,105f, 10f,78f, 22f,68f, 30f,50f, 40f,40f, 55f,55f),
+                  floatArrayOf(-12f,130f, -12f,143f, -27f,153f, -38f,146f, -35f,117f, -22f,114f)
+              )
+
+              private fun proj(lat: Float, lon: Float, cx: Float, cy: Float, r: Float): Boolean {
+                  val la = Math.toRadians(lat.toDouble())
+                  val lo = Math.toRadians((lon + rot).toDouble())
+                  val x = cos(la) * sin(lo)
+                  val y0 = sin(la)
+                  val z0 = cos(la) * cos(lo)
+                  val a = 0.4
+                  val y = y0 * cos(a) - z0 * sin(a)
+                  val z = y0 * sin(a) + z0 * cos(a)
+                  var px = x.toFloat()
+                  var py = y.toFloat()
+                  if (z < 0) {
+                      val l = hypot(px, py)
+                      if (l > 0.0001f) { px /= l; py /= l } else { px = 1f; py = 0f }
+                  }
+                  pt[0] = cx + r * px
+                  pt[1] = cy - r * py
+                  return z >= 0
+              }
+
+              override fun onDraw(cv: Canvas) {
+                  val now = System.nanoTime()
+                  val dt = if (last == 0L) 0.016f else min(0.05f, (now - last) / 1e9f)
+                  last = now
+                  t += dt
+                  val st = state
+                  rot = (rot + (if (st == 1) 60f else if (st == 2) 40f else 14f) * dt) % 360f
+                  amp += ((if (st == 2) 1f else 0f) - amp) * min(1f, dt * 6f)
+                  val s = 1f + 0.02f * sin(t * 2f) + amp * 0.05f * sin(t * 10f) + (if (st == 1) 0.03f * sin(t * 5f) else 0f)
+                  val cx = width / 2f
+                  val cy = height / 2f
+                  val r = min(width, height) * 0.32f * s
+
+                  val glow = if (st == 2) 0.6f + 0.4f * amp else if (st == 1) 0.8f else 0.5f
+                  p.style = Paint.Style.FILL
+                  p.shader = RadialGradient(cx, cy, r * 1.9f, intArrayOf(Color.argb((170 * glow).toInt(), 74, 140, 255), Color.argb(0, 74, 140, 255)), floatArrayOf(0.5f, 1f), Shader.TileMode.CLAMP)
+                  cv.drawCircle(cx, cy, r * 1.9f, p)
+                  p.shader = null
+
+                  if (st == 1) {
+                      p.style = Paint.Style.STROKE
+                      p.strokeWidth = 4f
+                      for (i in 0..1) {
+                          val ph = (t * 0.8f + i * 0.5f) % 1f
+                          p.color = Color.argb(((1f - ph) * 130).toInt(), 140, 190, 255)
+                          cv.drawCircle(cx, cy, r * (1.05f + 0.5f * ph), p)
+                      }
+                      p.style = Paint.Style.FILL
+                  }
+
+                  val clip = Path()
+                  clip.addCircle(cx, cy, r, Path.Direction.CW)
+                  cv.save()
+                  cv.clipPath(clip)
+                  p.shader = RadialGradient(cx - r * 0.35f, cy - r * 0.4f, r * 1.6f, intArrayOf(Color.rgb(127, 200, 255), Color.rgb(36, 98, 214), Color.rgb(8, 30, 100)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+                  cv.drawCircle(cx, cy, r, p)
+                  p.shader = null
+                  p.color = Color.rgb(63, 174, 90)
+                  for (poly in land) {
+                      val path = Path()
+                      var any = false
+                      var i = 0
+                      while (i < poly.size) {
+                          if (proj(poly[i], poly[i + 1], cx, cy, r)) any = true
+                          if (i == 0) path.moveTo(pt[0], pt[1]) else path.lineTo(pt[0], pt[1])
+                          i += 2
+                      }
+                      path.close()
+                      if (any) cv.drawPath(path, p)
+                  }
+                  p.shader = RadialGradient(cx, cy, r, intArrayOf(Color.argb(0, 0, 0, 0), Color.argb(0, 0, 0, 0), Color.argb(150, 0, 10, 40)), floatArrayOf(0f, 0.65f, 1f), Shader.TileMode.CLAMP)
+                  cv.drawCircle(cx, cy, r, p)
+                  p.shader = null
+                  p.color = Color.argb(60, 255, 255, 255)
+                  cv.drawOval(cx - r * 0.65f, cy - r * 0.8f, cx - r * 0.05f, cy - r * 0.45f, p)
+                  cv.restore()
+                  postInvalidateOnAnimation()
+              }
+          }
+          NOAH_EOF
+          mkdir -p $(dirname app/src/main/java/com/noah/app/MainActivity.kt)
+          cat > app/src/main/java/com/noah/app/MainActivity.kt <<'NOAH_EOF'
+          package com.noah.app
+
+          import android.Manifest
+          import android.app.Activity
+          import android.app.AlertDialog
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.graphics.Color
+          import android.hardware.camera2.CameraManager
+          import android.net.Uri
+          import android.os.Bundle
+          import android.os.Handler
+          import android.os.Looper
+          import android.provider.AlarmClock
+          import android.provider.ContactsContract
+          import android.provider.MediaStore
+          import android.provider.Settings
+          import android.speech.RecognitionListener
+          import android.speech.RecognizerIntent
+          import android.speech.SpeechRecognizer
+          import android.speech.tts.TextToSpeech
+          import android.speech.tts.UtteranceProgressListener
+          import android.speech.tts.Voice
+          import android.telephony.SmsManager
+          import android.view.Gravity
+          import android.view.View
+          import android.widget.Button
+          import android.widget.EditText
+          import android.widget.ImageView
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.net.HttpURLConnection
+          import java.net.URL
+          import java.net.URLEncoder
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+          import kotlin.concurrent.thread
+
+          const val PERSONA = "You are Noah, a sweet, loving, caring girl assistant. Reply in the user's language (Hinglish/Hindi/English), warm and human, maximum 3 short sentences, plain text only, no markdown, no emoji."
+
+          class MainActivity : Activity() {
+              private lateinit var tts: TextToSpeech
+              private var rec: SpeechRecognizer? = null
+              private lateinit var status: TextView
+              private lateinit var logView: TextView
+              private lateinit var scroll: ScrollView
+              private lateinit var globe: GlobeView
+              private val ui = Handler(Looper.getMainLooper())
+              private var hands = false
+              private var talking = false
+              private var fg = true
+              private var ttsReady = false
+
+              private val listener = object : RecognitionListener {
+                  override fun onReadyForSpeech(p: Bundle?) { status.text = "Sun rahi hu..."; globe.state = 1 }
+                  override fun onBeginningOfSpeech() {}
+                  override fun onRmsChanged(v: Float) {}
+                  override fun onBufferReceived(b: ByteArray?) {}
+                  override fun onEndOfSpeech() {}
+                  override fun onError(e: Int) {
+                      if (!talking) globe.state = 0
+                      status.text = if (hands) "Bolo, main sun rahi hu" else "Globe dabao aur baat karo"
+                      if (hands && fg && !talking) ui.postDelayed({ if (hands && fg && !talking) listen() }, 700)
+                  }
+                  override fun onResults(r: Bundle?) {
+                      val t = r?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                      if (!t.isNullOrBlank()) handle(t) else if (hands && fg && !talking) listen()
+                  }
+                  override fun onPartialResults(p: Bundle?) {}
+                  override fun onEvent(t: Int, p: Bundle?) {}
+              }
+
+              override fun onCreate(b: Bundle?) {
+                  super.onCreate(b)
+                  buildUi()
+                  requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE, Manifest.permission.SEND_SMS), 1)
+                  tts = TextToSpeech(this) { st ->
+                      if (st == TextToSpeech.SUCCESS) {
+                          ttsReady = true
+                          applyVoice()
+                          tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                              override fun onStart(id: String?) {}
+                              override fun onDone(id: String?) { ui.post { talking = false; globe.state = 0; if (hands && fg) listen() } }
+                              override fun onError(id: String?) { ui.post { talking = false; globe.state = 0 } }
+                          })
+                      }
+                  }
+                  if (SpeechRecognizer.isRecognitionAvailable(this)) {
+                      rec = SpeechRecognizer.createSpeechRecognizer(this)
+                      rec?.setRecognitionListener(listener)
+                  }
+              }
+
+              override fun onResume() { super.onResume(); fg = true; if (hands && !talking) ui.postDelayed({ listen() }, 600) }
+              override fun onPause() { super.onPause(); fg = false; rec?.cancel() }
+              override fun onDestroy() { super.onDestroy(); rec?.destroy(); tts.shutdown() }
+
+              private fun buildUi() {
+                  val root = LinearLayout(this)
+                  root.orientation = LinearLayout.VERTICAL
+                  root.setBackgroundColor(Color.parseColor("#0B1020"))
+                  root.setPadding(32, 90, 32, 32)
+                  root.gravity = Gravity.CENTER_HORIZONTAL
+                  val title = TextView(this)
+                  title.text = "Noah"; title.textSize = 24f; title.setTextColor(Color.WHITE)
+                  globe = GlobeView(this)
+                  globe.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.4f)
+                  globe.setOnClickListener { toggle() }
+                  status = TextView(this)
+                  status.text = "Globe dabao aur baat karo"; status.setTextColor(Color.parseColor("#9FC0FF")); status.setPadding(0, 20, 0, 20)
+                  logView = TextView(this)
+                  logView.setTextColor(Color.WHITE); logView.textSize = 15f
+                  scroll = ScrollView(this)
+                  scroll.addView(logView)
+                  scroll.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+                  val row = LinearLayout(this)
+                  val acc = Button(this)
+                  acc.text = "Auto-send ON"
+                  acc.setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                  val key = Button(this)
+                  key.text = "AI key"
+                  key.setOnClickListener { askKey() }
+                  val vb = Button(this)
+                  vb.text = "Voice"
+                  vb.setOnClickListener { nextVoice() }
+                  row.addView(acc); row.addView(vb); row.addView(key)
+                  val row2 = LinearLayout(this)
+                  val input = EditText(this)
+                  input.hint = "Ya yahan likho..."; input.setTextColor(Color.WHITE); input.setHintTextColor(Color.GRAY)
+                  input.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                  val send = Button(this)
+                  send.text = "Send"
+                  send.setOnClickListener { val t = input.text.toString(); input.setText(""); if (t.isNotBlank()) handle(t) }
+                  row2.addView(input); row2.addView(send)
+                  root.addView(title); root.addView(globe); root.addView(status); root.addView(scroll); root.addView(row); root.addView(row2)
+                  setContentView(root)
+              }
+
+              private fun askKey() {
+                  val et = EditText(this)
+                  AlertDialog.Builder(this).setTitle("Gemini AI key paste karo").setView(et)
+                      .setPositiveButton("Save") { _, _ ->
+                          getSharedPreferences("noah", MODE_PRIVATE).edit().putString("key", et.text.toString().trim()).apply()
+                          say("AI key save ho gayi")
+                      }.show()
+              }
+
+              private fun toggle() {
+                  hands = !hands
+                  if (hands) {
+                      if (ttsReady) say("Hello! Main Noah hu. Bolo, kya karu tumhare liye?") else listen()
+                  } else {
+                      rec?.cancel(); tts.stop(); globe.state = 0; status.text = "Band kar diya. Globe dabao to dobara shuru"
+                  }
+              }
+
+              private fun listen() {
+                  val r = rec ?: return
+                  val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                      .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                      .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+                  r.startListening(i)
+              }
+
+              private fun log(who: String, t: String) {
+                  logView.append("\n$who: $t\n")
+                  scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+              }
+
+              private fun say(t: String) {
+                  log("Noah", t)
+                  if (!ttsReady) return
+                  talking = true
+                  globe.state = 2
+                  rec?.cancel()
+                  val plain = t.replace(Regex("[^\\p{L}\\p{N}\\s.,?!'-]"), "")
+                  tts.speak(plain, TextToSpeech.QUEUE_FLUSH, null, "n")
+              }
+
+              private fun go(i: Intent) {
+                  try { startActivity(i) } catch (e: Exception) { say("Ye khul nahi paya") }
+              }
+
+              private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+              private fun digits(s: String): String { val d = s.filter { it.isDigit() }; return if (d.length == 10) "91$d" else d }
+              private fun clean(s: String) = s.replace(Regex("\\b(noah|please|plz|pe|par|me|mein|ko|ka|ki|ke|open|kholo|khol|whatsapp|chat|message|msg|karo|kar|do|de)\\b"), " ").replace(Regex("\\s+"), " ").trim()
+
+              private fun findContact(name: String): Pair<String, String>? {
+                  if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
+                  val n = clean(name)
+                  if (n.isEmpty()) return null
+                  val c = contentResolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                      arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER), null, null, null) ?: return null
+                  c.use {
+                      while (it.moveToNext()) {
+                          val dn = it.getString(0) ?: continue
+                          val low = dn.lowercase()
+                          if (low.contains(n) || low.replace(" ", "") == n.replace(" ", "")) return Pair(dn, it.getString(1) ?: "")
+                      }
+                  }
+                  return null
+              }
+
+              private fun whatsapp(c: Pair<String, String>, msg: String) {
+                  val auto = msg.isNotEmpty() && NoahService.instance != null
+                  if (auto) NoahService.pendingUntil = System.currentTimeMillis() + 20000
+                  val url = "https://wa.me/${digits(c.second)}" + (if (msg.isNotEmpty()) "?text=${enc(msg)}" else "")
+                  say(if (msg.isEmpty()) "${c.first} ki chat khol rahi hu" else if (auto) "${c.first} ko message bhej rahi hu: $msg" else "${c.first} ke liye message likh diya. Send dabao, ya Auto-send ON karo")
+                  go(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.whatsapp"))
+              }
+
+              private val known = mapOf(
+                  "playstore" to "com.android.vending", "googleplaystore" to "com.android.vending", "chatgpt" to "com.openai.chatgpt",
+                  "spotify" to "com.spotify.music", "youtube" to "com.google.android.youtube", "whatsapp" to "com.whatsapp",
+                  "instagram" to "com.instagram.android", "facebook" to "com.facebook.katana", "telegram" to "org.telegram.messenger",
+                  "snapchat" to "com.snapchat.android", "netflix" to "com.netflix.mediaclient", "paytm" to "net.one97.paytm",
+                  "phonepe" to "com.phonepe.app", "gpay" to "com.google.android.apps.nbu.paisa.user", "zomato" to "com.application.zomato",
+                  "swiggy" to "in.swiggy.android", "amazon" to "in.amazon.mShop.android.shopping", "flipkart" to "com.flipkart.android",
+                  "chrome" to "com.android.chrome", "gmail" to "com.google.android.gm", "maps" to "com.google.android.apps.maps",
+                  "photos" to "com.google.android.apps.photos", "gemini" to "com.google.android.apps.bard", "claude" to "com.anthropic.claude",
+                  "linkedin" to "com.linkedin.android", "twitter" to "com.twitter.android", "discord" to "com.discord"
+              )
+
+              private fun voiceList(): List<Voice> = try {
+                  tts.voices.filter { it.locale.language == "hi" || (it.locale.language == "en" && it.locale.country == "IN") }.sortedBy { it.name }
+              } catch (e: Exception) { emptyList() }
+
+              private fun applyVoice() {
+                  val l = voiceList()
+                  val name = getSharedPreferences("noah", MODE_PRIVATE).getString("voice", null)
+                  val v = l.firstOrNull { it.name == name } ?: l.firstOrNull { it.locale.language == "hi" && it.name.contains("hia") }
+                      ?: l.firstOrNull { it.locale.language == "hi" } ?: l.firstOrNull()
+                  if (v != null) tts.voice = v else tts.language = Locale("hi", "IN")
+                  tts.setPitch(1.25f); tts.setSpeechRate(1.0f)
+              }
+
+              private fun nextVoice() {
+                  val l = voiceList()
+                  if (l.isEmpty()) { say("Is phone me aur awaazein nahi hain. Settings me Text-to-speech se Hindi awaaz download karo"); return }
+                  val prefs = getSharedPreferences("noah", MODE_PRIVATE)
+                  val i = (l.indexOfFirst { it.name == prefs.getString("voice", null) } + 1) % l.size
+                  prefs.edit().putString("voice", l[i].name).apply()
+                  tts.voice = l[i]
+                  say("Hello, main Noah hu. Ye meri awaaz number ${i + 1} hai. Pasand na aaye to dobara Voice dabao")
+              }
+
+              private fun openApp(nm: String) {
+                  val pm = packageManager
+                  val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+                  val key = nm.replace(" ", "")
+                  val hit = apps.firstOrNull { it.loadLabel(pm).toString().lowercase().replace(" ", "") == key }
+                      ?: apps.firstOrNull { val l = it.loadLabel(pm).toString().lowercase().replace(" ", ""); l.contains(key) || (l.length >= 3 && key.contains(l)) }
+                  if (hit != null) {
+                      val li = pm.getLaunchIntentForPackage(hit.activityInfo.packageName)
+                      say("${hit.loadLabel(pm)} khol rahi hu")
+                      if (li != null) go(li)
+                      return
+                  }
+                  val pkg = known[key]
+                  if (pkg != null) {
+                      val li = pm.getLaunchIntentForPackage(pkg)
+                      if (li != null) { say("$nm khol rahi hu"); go(li); return }
+                      say("$nm is phone me install nahi hai. Play Store khol rahi hu")
+                      go(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))); return
+                  }
+                  say("$nm naam ki app mujhe nahi mili. Play Store me dhundh rahi hu")
+                  go(Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=" + enc(nm))))
+              }
+
+              private fun ytFind(term: String): String? = try {
+                  val c = URL("https://www.youtube.com/results?sp=EgIQAQ%253D%253D&search_query=" + URLEncoder.encode(term, "UTF-8")).openConnection() as HttpURLConnection
+                  c.connectTimeout = 8000; c.readTimeout = 8000
+                  c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
+                  c.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+                  val html = c.inputStream.bufferedReader().readText()
+                  Regex("\"videoId\":\"([\\w-]{11})\"").find(html)?.groupValues?.get(1)
+              } catch (e: Exception) { null }
+
+              private fun gemini(q: String, key: String): String? = try {
+                  val c = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=$key").openConnection() as HttpURLConnection
+                  c.requestMethod = "POST"; c.doOutput = true; c.connectTimeout = 15000; c.readTimeout = 30000
+                  c.setRequestProperty("Content-Type", "application/json")
+                  val body = JSONObject()
+                      .put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", PERSONA))))
+                      .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", q)))))
+                  c.outputStream.use { it.write(body.toString().toByteArray()) }
+                  JSONObject(c.inputStream.bufferedReader().readText()).getJSONArray("candidates").getJSONObject(0)
+                      .getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text").trim()
+              } catch (e: Exception) { null }
+
+              private fun handle(raw: String) {
+                  val q = raw.lowercase().trim().replace("chat gpt", "chatgpt")
+                  log("Tum", raw)
+                  fun has(vararg w: String) = w.any { q.contains(it) }
+
+                  // chat kholo / chat me message likho
+                  Regex("^(?:open\\s+|kholo\\s+)?(.+?)\\s+(?:ki\\s+|ka\\s+)?chat\\b(.*)$").find(q)?.let { m ->
+                      val rest = m.groupValues[2]
+                      val mm = Regex("(?:likho|write|type|bhejo|send|bolo|kaho)\\s+(.+)").find(rest)
+                          ?: Regex("(?:me|mein|par|pe)?\\s*(.+?)\\s+(?:likho|write|type|bhejo|send)\\s*$").find(rest)
+                      val msg = mm?.groupValues?.get(1)?.replace(Regex("^(ki|ke|that)\\s+"), "")?.trim() ?: ""
+                      val c = findContact(m.groupValues[1])
+                      if (c == null) { say("Mujhe ${clean(m.groupValues[1])} naam ka contact nahi mila"); return }
+                      whatsapp(c, msg); return
+                  }
+                  // X ko message bhejo
+                  Regex("(?:whatsapp\\s*(?:pe|par)?\\s*)?(.+?)\\s+ko\\s+(?:whatsapp\\s*(?:pe|par)?\\s*)?(?:message|msg|sms)?\\s*(?:bhejo|bhej do|bhej|send|likho|bolo|kaho|type)\\s*(?:ki|ke)?\\s*(.+)").find(q)?.let { m ->
+                      val c = findContact(m.groupValues[1])
+                      if (c == null) { say("Mujhe ${clean(m.groupValues[1])} naam ka contact nahi mila"); return }
+                      val msg = m.groupValues[2].trim()
+                      if (has("sms")) {
+                          if (checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
+                              @Suppress("DEPRECATION") SmsManager.getDefault().sendTextMessage(c.second, null, msg, null, null)
+                              say("${c.first} ko SMS bhej diya")
+                          } else say("SMS ki permission allow karo")
+                      } else whatsapp(c, msg)
+                      return
+                  }
+                  // call
+                  Regex("(.+?)\\s+ko\\s+(?:call|phone)").find(q)?.let { m ->
+                      val c = findContact(m.groupValues[1])
+                      if (c == null) { say("Ye contact mujhe nahi mila"); return }
+                      say("${c.first} ko call laga rahi hu")
+                      val act = if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) Intent.ACTION_CALL else Intent.ACTION_DIAL
+                      go(Intent(act, Uri.parse("tel:" + c.second))); return
+                  }
+                  // alarm / timer
+                  val al = Regex("(\\d{1,2})(?::(\\d{2}))?\\s*(?:baje|bje|am|pm)").find(q)
+                  if (al != null && has("alarm")) {
+                      var h = al.groupValues[1].toInt()
+                      val mi = al.groupValues[2].ifEmpty { "0" }.toInt()
+                      if (has("pm", "shaam", "raat", "dopahar") && h < 12) h += 12
+                      go(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, h).putExtra(AlarmClock.EXTRA_MINUTES, mi).putExtra(AlarmClock.EXTRA_SKIP_UI, true))
+                      say("Alarm $h baj ke $mi minute par set kar diya"); return
+                  }
+                  val tm = Regex("(\\d+)\\s*(second|sec|minute|min|mint|ghante|ghanta|hour)").find(q)
+                  if (tm != null && has("timer")) {
+                      val n = tm.groupValues[1].toInt(); val u = tm.groupValues[2]
+                      val secs = n * (if (u.startsWith("sec")) 1 else if (u.startsWith("min")) 60 else 3600)
+                      go(Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, secs).putExtra(AlarmClock.EXTRA_SKIP_UI, true))
+                      say("$n ${tm.groupValues[2]} ka timer laga diya"); return
+                  }
+                  // phone controls
+                  if (has("torch", "flashlight")) {
+                      val on = !has("band", "off", "bujha")
+                      try { val cm = getSystemService(Context.CAMERA_SERVICE) as CameraManager; cm.setTorchMode(cm.cameraIdList[0], on); say(if (on) "Torch chalu kar di" else "Torch band kar di") }
+                      catch (e: Exception) { say("Torch nahi chal paayi") }
+                      return
+                  }
+                  if (has("wifi", "wi-fi")) { say("WiFi settings khol rahi hu"); go(Intent(Settings.ACTION_WIFI_SETTINGS)); return }
+                  if (has("bluetooth")) { say("Bluetooth settings khol rahi hu"); go(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)); return }
+                  if (has("camera", "selfie")) { say("Camera khol rahi hu"); go(Intent(MediaStore.ACTION_IMAGE_CAPTURE)); return }
+                  if (has("settings")) { say("Settings khol rahi hu"); go(Intent(Settings.ACTION_SETTINGS)); return }
+                  // open any app
+                  if (has("open", "kholo", "khol", "chalu", "start", "launch") && !has("chala do", "bajao", "gana", "song", "chalao")) {
+                      val nm = q.replace(Regex("\\b(open|kholo|khol|chalu|start|launch|app|noah|please|karo|kar|do|de|ko|ek|ye)\\b"), " ").replace(Regex("\\s+"), " ").trim()
+                      if (nm.isNotEmpty()) { openApp(nm); return }
+                  }
+                  // YouTube play
+                  if (has("youtube", "chala", "bajao", "gana", "gaana", "play ")) {
+                      val term = q.replace(Regex("\\b(noah|please|youtube|you tube|pe|par|on|me|mein|ko|ka|ki|ke|chala|chalao|bajao|baja|play|do|de|karo|kar|kro|search|video|dikhao)\\b"), " ").replace(Regex("\\s+"), " ").trim()
+                      if (term.isEmpty()) { openApp("youtube"); return }
+                      say("$term chala rahi hu")
+                      thread {
+                          val id = ytFind(term)
+                          runOnUiThread {
+                              val url = if (id != null) "https://www.youtube.com/watch?v=$id" else "https://www.youtube.com/results?search_query=" + enc(term)
+                              try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.google.android.youtube")) }
+                              catch (e: Exception) { go(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                          }
+                      }
+                      return
+                  }
+                  if (has("time", "samay", "baje kya")) { say("Abhi " + SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date()) + " ho rahe hain"); return }
+                  if (has("i love you", "love you", "pyar", "pyaar")) { say("Main bhi tumse bahut pyaar karti hu"); return }
+                  if (has("kaisi ho", "kaise ho", "how are you")) { say("Main bahut achhi hu, tumse baat jo ho rahi hai. Tum batao?"); return }
+                  if (has("naam", "who are you", "kaun ho")) { say("Main Noah hu, tumhari apni dost aur assistant"); return }
+                  if (has("thank", "shukriya")) { say("Arre, thank you kaisa. Tumhare liye toh kuch bhi"); return }
+                  if (has("hello", "hi ", "hey", "namaste") && q.length < 12) { say("Hello jaan! Bolo, kya karu tumhare liye?"); return }
+                  // AI fallback
+                  val key = getSharedPreferences("noah", MODE_PRIVATE).getString("key", "") ?: ""
+                  if (key.isBlank()) { say("Samajh nahi aaya. Smart jawab ke liye AI key daalo."); return }
+                  thread { val a = gemini(raw, key); runOnUiThread { say(a ?: "Abhi jawab nahi mil paya") } }
+              }
+          }
+          NOAH_EOF
+          mkdir -p $(dirname app/src/main/java/com/noah/app/NoahService.kt)
+          cat > app/src/main/java/com/noah/app/NoahService.kt <<'NOAH_EOF'
+          package com.noah.app
+
+          import android.accessibilityservice.AccessibilityService
+          import android.content.Intent
+          import android.view.accessibility.AccessibilityEvent
+          import android.view.accessibility.AccessibilityNodeInfo
+
+          class NoahService : AccessibilityService() {
+              companion object {
+                  @Volatile var instance: NoahService? = null
+                  @Volatile var pendingUntil = 0L
+              }
+
+              override fun onServiceConnected() { instance = this }
+
+              override fun onUnbind(intent: Intent?): Boolean {
+                  instance = null
+                  return super.onUnbind(intent)
+              }
+
+              override fun onInterrupt() {}
+
+              override fun onAccessibilityEvent(e: AccessibilityEvent?) {
+                  if (System.currentTimeMillis() > pendingUntil) return
+                  val root = rootInActiveWindow ?: return
+                  val list = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
+                  var target: AccessibilityNodeInfo? = list?.firstOrNull()
+                  if (target == null) target = findByDesc(root, "send")
+                  if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                      pendingUntil = 0L
+                  }
+              }
+
+              private fun findByDesc(n: AccessibilityNodeInfo?, d: String): AccessibilityNodeInfo? {
+                  if (n == null) return null
+                  val cd = n.contentDescription?.toString()?.lowercase()
+                  if (cd == d && n.isClickable) return n
+                  for (i in 0 until n.childCount) {
+                      val r = findByDesc(n.getChild(i), d)
+                      if (r != null) return r
+                  }
+                  return null
+              }
+          }
+          NOAH_EOF
+          mkdir -p $(dirname app/src/main/res/xml/accessibility_config.xml)
+          cat > app/src/main/res/xml/accessibility_config.xml <<'NOAH_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeWindowContentChanged|typeWindowStateChanged"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagReportViewIds"
+              android:canRetrieveWindowContent="true"
+              android:notificationTimeout="200"
+              android:packageNames="com.whatsapp,com.whatsapp.w4b"
+              android:description="@string/acc_desc"/>
+          NOAH_EOF
+          mkdir -p $(dirname app/src/main/res/values/strings.xml)
+          cat > app/src/main/res/values/strings.xml <<'NOAH_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="acc_desc">Noah sirf WhatsApp me aapke bole hue message ka Send button dabati hai.</string>
+          </resources>
+          NOAH_EOF
+          mkdir -p $(dirname app/src/main/res/drawable/ic_globe.xml)
+          cat > app/src/main/res/drawable/ic_globe.xml <<'NOAH_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="96dp" android:height="96dp" android:viewportWidth="96" android:viewportHeight="96">
+              <path android:fillColor="#0B1020" android:pathData="M0,0h96v96h-96z"/>
+              <path android:fillColor="#2462D6" android:pathData="M48,48m-34,0a34,34 0 1,1 68,0a34,34 0 1,1 -68,0"/>
+              <path android:fillColor="#3FAE5A" android:pathData="M30,36 l14,-6 l8,10 l-6,14 l-14,-2 z"/>
+              <path android:fillColor="#3FAE5A" android:pathData="M54,50 l14,-4 l6,12 l-10,14 l-12,-8 z"/>
+          </vector>
+          NOAH_EOF
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Noah-APK-v2
+          path: app/build/outputs/apk/debug/app-debug.apk
